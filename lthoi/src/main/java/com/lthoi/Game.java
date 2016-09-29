@@ -103,7 +103,7 @@ public class Game
 				this.secs_remaining = rs.getInt("secs_remaining");
 				this.home_score = rs.getInt("home_score");
 				this.away_score = rs.getInt("away_score");
-				this.start = rs.getDate("start");
+				this.start = rs.getTimestamp("start");
 				this.isFinished = rs.getInt("isFinished");
 				timetoremove = rs.getInt("freeze_minutes");
 				
