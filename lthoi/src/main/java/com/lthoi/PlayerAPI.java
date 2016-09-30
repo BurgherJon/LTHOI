@@ -497,6 +497,107 @@ public class PlayerAPI
     	
     	return response;
     }
+    
+    //The sloppy part about this is that there is no transactionality.  If it fails after processing x house bets
+    //but before the last one, then the next run of the cronjub will process duplicate house bets.
+    @ApiMethod(name = "cronJob")
+    public void cronJob ()
+    {
+    	
+    	String strurl = "";
+        String struser = "";
+        String strpass = "";
+		String strquery;
+		int updates = 0;
+		Bet workingbet;
+		final Logger log = Logger.getLogger(PlayerAPI.class.getName());
+		
+		log.info("In the Cron Job.");
+				
+        try
+		{
+			if (SystemProperty.environment.value() == SystemProperty.Environment.Value.Production)
+			{
+				// Load the class that provides the new "jdbc:google:mysql://" prefix.
+				Class.forName("com.mysql.jdbc.GoogleDriver");
+				strurl = "jdbc:google:mysql://focal-acronym-94611:us-central1:lthoidb/lthoidb";
+				struser = "root";
+				strpass = "!VegasVaca2!";
+			}
+			else
+			{
+				//Local MySQL Instance to use during Dev.
+				Class.forName("com.mysql.jdbc.Driver");
+				strurl = "jdbc:mysql://127.0.0.1:3306/lthoidb";
+				struser = "root";
+				log.info("Running locally!");
+			}
+		}
+		catch (ClassNotFoundException e)
+		{
+			log.severe("Unable to create connection string for the database.");
+			log.severe(e.getMessage());
+		}
+		
+        Connection conn = null;
+		try 
+		{
+			conn = DriverManager.getConnection(strurl, struser, strpass);			
+			
+			//Query will be updated to determine if there are any games that need to be frozen.
+			strquery = "SELECT b.bet_id, b.league_season_id FROM Bets b WHERE b.game_id IN (SELECT g.game_id FROM Games g WHERE g.START <= NOW() - INTERVAL (SELECT ls.freeze_minutes FROM League_Seasons ls WHERE ls.league_season_id = b.league_season_id) MINUTE) AND (b.hbprocessed <> 1 OR b.hbprocessed IS NULL);";
+			ResultSet rs = conn.createStatement().executeQuery(strquery);
+			if (rs.next()) //Anything in the result set?
+			{
+				strquery = "UPDATE Bets SET hbprocessed = 1 WHERE bet_id IN (";
+				
+				do
+				{
+					//Generate the house bets
+					workingbet = new Bet(rs.getInt("bet_id"));
+					workingbet.setLeague_Season_ID(rs.getInt("league_season_id"));
+					workingbet.generatehousebets();
+					
+					//Update the query to mark the house bets processed.
+					if (updates == 0)
+					{
+						strquery = strquery + workingbet.getId();
+					}
+					else
+					{
+						strquery = strquery + ", " + workingbet.getId();
+					}
+										
+					//Note that there is at least one that needs to be updated.
+					updates = 1;
+				} 
+				while (rs.next());
+				
+				//Finish the query and run it if there were updates.
+				if (updates == 1)
+				{
+					strquery = strquery + ");";
+							
+					//Run the update query.
+					conn.createStatement().executeUpdate(strquery);
+				}
+			}
+			else //Nothing in the result set.
+			{
+				log.severe("No house bets necessary.");
+				log.severe("Query Executed: " + strquery);
+			}
+			
+			conn.close();
+		} 
+		catch (SQLException e) 
+		{
+			log.severe("SQL Exception processing!");
+			log.info("Connection String: " + strurl + "&" + struser + "&" + strpass);
+			log.info(e.getMessage());
+		}
+    	
+    }
 
 }
 

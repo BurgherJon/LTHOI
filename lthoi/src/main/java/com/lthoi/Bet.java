@@ -5,6 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.logging.Logger;
 
@@ -28,7 +29,7 @@ public class Bet
 	private String result;
 	private Date start;
 		
-	//This constructor is for creating an entirely new bet.
+	//This constructor is for creating an entirely new bet.  It will add to the database.
 	public Bet(String email, String team_name, int league_season_id)
 	{		
 		//Variables will be used to build the insert query.
@@ -184,6 +185,106 @@ public class Bet
 			log.info(e.getMessage());
 		}
 		
+	}
+	
+	//Note that this constructor will NOT fetch information from the database... you must populate it.
+	public Bet(int id)
+	{
+		this.id = id;
+	}
+	
+	public void generatehousebets()
+	{
+		final Logger log = Logger.getLogger(Bet.class.getName());
+		
+		String strurl = "";
+        String struser = "";
+        String strpass = "";
+		String strquery;
+		int index = 0;
+		double bet_amount = 0.0;
+		ArrayList<Integer> players = new ArrayList<Integer>();
+		
+		log.info("Generating House Bets for " + this.id);
+		
+        try
+		{
+			if (SystemProperty.environment.value() == SystemProperty.Environment.Value.Production)
+			{
+				// Load the class that provides the new "jdbc:google:mysql://" prefix.
+				Class.forName("com.mysql.jdbc.GoogleDriver");
+				strurl = "jdbc:google:mysql://focal-acronym-94611:us-central1:lthoidb/lthoidb";
+				struser = "root";
+				strpass = "!VegasVaca2!";
+			}
+			else
+			{
+				//Local MySQL Instance to use during Dev.
+				Class.forName("com.mysql.jdbc.Driver");
+				strurl = "jdbc:mysql://127.0.0.1:3306/lthoidb";
+				struser = "root";
+				log.info("Running locally!");
+			}
+		}
+		catch (ClassNotFoundException e)
+		{
+			log.severe("Unable to create connection string for the database.");
+			log.severe(e.getMessage());
+		}
+		
+        
+        
+		Connection conn = null;
+		
+		try 
+		{
+			conn = DriverManager.getConnection(strurl, struser, strpass);			
+			
+			//Going to require a select query to get all of the users.
+			strquery = "SELECT lsum.user_id, ls.bet_amount FROM League_Season_User_Map lsum INNER JOIN League_Seasons ls ON ls.league_season_id = lsum.league_season_id  WHERE lsum.league_season_id = " + this.league_season_id + ";";
+			
+			ResultSet rs = conn.createStatement().executeQuery(strquery);
+			if (rs.next()) //Anything in the result set?
+			{
+								
+				log.info("Getting the bet amount.");
+				bet_amount = rs.getDouble("bet_amount");
+				
+				do
+				{
+					log.info("Adding a user");
+					players.add(rs.getInt("user_id"));
+				}
+				while (rs.next());
+				
+				bet_amount = bet_amount / players.size();
+				
+			}
+			else //Nothing in the result set.
+			{
+				log.severe("Nothing in the result set for query.");
+				log.severe("Query Executed: " + strquery);
+			}
+				
+			log.info("To the inserts.");
+			for (index = 0; index < players.size(); index++)
+			{
+				strquery = "INSERT INTO House_Bets (parent_bet_id, user_id, bet_amount) VALUES (" + this.id + ", " + players.get(index) + ", " + bet_amount + ");";
+				log.info("Adding one to DB: " + strquery);
+				conn.createStatement().executeUpdate(strquery);
+			}
+				
+			
+			
+		
+			conn.close();
+		} 
+		catch (SQLException e) 
+		{
+			log.severe("SQL Exception processing!");
+			log.info("Connection String: " + strurl + "&" + struser + "&" + strpass);
+			log.info(e.getMessage());
+		}
 	}
 	
 	public int getId()
